@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ЧМ 2026 — Семейный конкурс</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════════════ -->
+<header class="header">
+  <div class="header-inner">
+    <div class="header-brand">
+      <span class="header-trophy">🏆</span>
+      <div>
+        <h1 class="header-title">ЧМ 2026</h1>
+        <p class="header-sub">Семейный конкурс ставок</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="rulesBtn" class="btn btn-rules">📋 Правила</button>
+      <button id="refreshBtn" class="btn btn-icon" title="Обновить">
+        <span id="refreshIcon">⟳</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ STATUS BAR ════════════════════════════════════════════════════════════ -->
+<div class="status-bar" id="statusBar">
+  <span id="statusText">Загрузка данных…</span>
+  <span id="nextRefresh" class="next-refresh"></span>
+</div>
+
+<!-- ═══ MAIN ═════════════════════════════════════════════════════════════════ -->
+<main class="main">
+
+  <!-- Error banner -->
+  <div id="errorBanner" class="error-banner hidden">
+    <span id="errorText"></span>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="leaderboard">🏅 Таблица</button>
+    <button class="tab" data-tab="teams">⚽ Команды</button>
+  </div>
+
+  <!-- ── Leaderboard ── -->
+  <section class="tab-panel active" id="tab-leaderboard">
+    <div id="leaderboard" class="leaderboard">
+      <div class="skeleton-list">
+        <div class="skeleton"></div><div class="skeleton"></div>
+        <div class="skeleton"></div><div class="skeleton"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Teams ── -->
+  <section class="tab-panel" id="tab-teams">
+    <div id="teamsGrid" class="teams-grid">
+      <div class="skeleton-list">
+        <div class="skeleton"></div><div class="skeleton"></div>
+        <div class="skeleton"></div><div class="skeleton"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══ RULES MODAL ═══════════════════════════════════════════════════════════ -->
+<div id="rulesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
+  <div class="modal-overlay" id="modalOverlay"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="rulesTitle">📋 Правила конкурса</h2>
+      <button class="modal-close" id="closeRules" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="rules-intro">Очки каждого участника = сумма очков его трёх команд.</p>
+
+      <h3>Групповой этап</h3>
+      <h4>За каждый матч:</h4>
+      <table class="rules-table">
+        <tr><td>Победа</td><td class="pts">+3</td></tr>
+        <tr><td>Ничья</td><td class="pts">+1</td></tr>
+        <tr><td>Поражение</td><td class="pts">0</td></tr>
+      </table>
+
+      <h4>Бонус за итоговое место в группе:</h4>
+      <table class="rules-table">
+        <thead><tr><th>Место</th><th>Разница мячей</th><th class="pts">Очки</th></tr></thead>
+        <tbody>
+          <tr><td>1-е</td><td>≤ 3</td><td class="pts">+9</td></tr>
+          <tr><td>1-е</td><td>4–8</td><td class="pts">+10</td></tr>
+          <tr><td>1-е</td><td>9+</td><td class="pts">+11</td></tr>
+          <tr><td>2-е</td><td>≤ 2</td><td class="pts">+6</td></tr>
+          <tr><td>2-е</td><td>3–7</td><td class="pts">+7</td></tr>
+          <tr><td>2-е</td><td>8+</td><td class="pts">+8</td></tr>
+          <tr><td>3-е</td><td>&lt; 0</td><td class="pts">+3</td></tr>
+          <tr><td>3-е</td><td>0–3</td><td class="pts">+4</td></tr>
+          <tr><td>3-е</td><td>4+</td><td class="pts">+5</td></tr>
+          <tr><td>4-е</td><td>≤ −8</td><td class="pts">0</td></tr>
+          <tr><td>4-е</td><td>−7…−1</td><td class="pts">+1</td></tr>
+          <tr><td>4-е</td><td>0+</td><td class="pts">+2</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Плей-офф (1/16, 1/8, 1/4 финала)</h3>
+      <p><strong>Выход в плей-офф (Round of 32):</strong> +1 <em>(один раз)</em></p>
+      <table class="rules-table">
+        <thead><tr><th>Результат</th><th class="pts">Очки</th></tr></thead>
+        <tbody>
+          <tr><td>Победа в осн. время (разница 3+)</td><td class="pts">+8</td></tr>
+          <tr><td>Победа в осн. время (разница 1–2)</td><td class="pts">+7</td></tr>
+          <tr><td>Победа в доп. время (разница 2+)</td><td class="pts">+6</td></tr>
+          <tr><td>Победа в доп. время (разница 1)</td><td class="pts">+5</td></tr>
+          <tr><td>Победа по пенальти</td><td class="pts">+4</td></tr>
+          <tr><td>Поражение по пенальти</td><td class="pts">+3</td></tr>
+          <tr><td>Поражение в доп. время</td><td class="pts">+2</td></tr>
+          <tr><td>Поражение в осн. время (разница 1–2)</td><td class="pts">+1</td></tr>
+          <tr><td>Поражение в осн. время (разница 3+)</td><td class="pts">0</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Полуфинал</h3>
+      <p>Те же правила, что в плей-офф, <strong>+1 очко к каждому результату</strong> (кроме поражения с разницей 3+).</p>
+
+      <h3>Матч за 3-е место</h3>
+      <p>Те же правила, что в обычном плей-офф.</p>
+
+      <h3>Финал</h3>
+      <p>Те же правила, что в плей-офф, <strong>+2 очка к каждому результату</strong> (кроме поражения с разницей 3+), плюс <strong>дополнительно +3 очка за победу в финале</strong>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PARTICIPANT MODAL ══════════════════════════════════════════════════════ -->
+<div id="participantModal" class="modal" role="dialog" aria-modal="true">
+  <div class="modal-overlay" id="pModalOverlay"></div>
+  <div class="modal-box modal-box--wide">
+    <div class="modal-header">
+      <h2 id="pModalTitle">Детали участника</h2>
+      <button class="modal-close" id="closePModal" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="modal-body" id="pModalBody"></div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
