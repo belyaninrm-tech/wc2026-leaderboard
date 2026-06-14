@@ -4,7 +4,7 @@
 let state = { data: null, loading: false, error: null };
 let refreshTimer = null;
 let countdownInterval = null;
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 min
+const REFRESH_INTERVAL = 20 * 60 * 1000; // 20 min — keeps API calls ≤ 96/day on free plan
 let nextRefreshAt = null;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -75,12 +75,14 @@ async function fetchData() {
     state.error = null;
     $('errorBanner').classList.add('hidden');
     render();
-    updateStatusBar(json.updatedAt, json.totalFixtures, json.finishedFixtures, json.tournamentStarted, json.tournamentStartDate);
+    updateStatusBar(json.updatedAt, json.totalFixtures, json.finishedFixtures);
   } catch (e) {
     state.error = e.message;
     $('errorBanner').classList.remove('hidden');
-    $('errorText').textContent = '⚠️ Ошибка загрузки: ' + e.message;
-    $('statusText').textContent = 'Не удалось обновить данные';
+    // Surface the exact API-Football error message so the user can diagnose
+    $('errorText').textContent = '⚠️ Ошибка загрузки данных: ' + e.message +
+      '. Проверьте логи сервера (node server.js) для деталей.';
+    $('statusText').textContent = 'Ошибка подключения к API';
   } finally {
     state.loading = false;
     setLoading(false);
@@ -94,21 +96,9 @@ function setLoading(on) {
   else btn.classList.remove('spinning');
 }
 
-function updateStatusBar(updatedAt, total, finished, started, startDate) {
+function updateStatusBar(updatedAt, total, finished) {
   const d = updatedAt ? new Date(updatedAt) : new Date();
   const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-  if (!started && startDate) {
-    const start = new Date(startDate);
-    const diff  = start - Date.now();
-    if (diff > 0) {
-      const days  = Math.floor(diff / 86400000);
-      const hours = Math.floor((diff % 86400000) / 3600000);
-      $('statusText').textContent =
-        `⏳ Турнир стартует ${start.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} — через ${days} д. ${hours} ч.`;
-      return;
-    }
-  }
   $('statusText').textContent = `Обновлено в ${time} · Матчей: ${finished}/${total} сыграно`;
 }
 
@@ -137,24 +127,41 @@ function render() {
   renderPreTournamentBanner();
 }
 
+const WC_START = new Date('2026-06-11T00:00:00Z');
+
 function renderPreTournamentBanner() {
-  const { tournamentStarted, tournamentStartDate, finishedFixtures } = state.data;
+  const { tournamentStarted, finishedFixtures } = state.data;
   const existing = document.getElementById('tournamentBanner');
 
-  if (!tournamentStarted || finishedFixtures === 0) {
+  // Show only when API returned no fixtures at all (data not yet loaded into API)
+  if (!tournamentStarted) {
     if (!existing) {
       const banner = document.createElement('div');
       banner.id = 'tournamentBanner';
       banner.className = 'pretournament-banner';
-      const start = tournamentStartDate ? new Date(tournamentStartDate) : null;
-      const dateStr = start
-        ? start.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-        : '11 июня 2026';
+      const now = Date.now();
+      const started = now >= WC_START.getTime();
+
+      let icon, title, sub;
+      if (started) {
+        // Tournament is running but API returned no fixture data — probably API plan issue
+        icon  = '📡';
+        title = 'Данные турнира недоступны';
+        sub   = 'ЧМ 2026 уже идёт, но API не вернул данные по матчам. ' +
+                'Проверьте логи сервера, доступ к API-Football и тарифный план.';
+      } else {
+        const diff  = WC_START - now;
+        const days  = Math.floor(diff / 86400000);
+        const hours = Math.floor((diff % 86400000) / 3600000);
+        icon  = '⏳';
+        title = 'Турнир ещё не начался';
+        sub   = `ЧМ 2026 стартует <strong>11 июня 2026</strong> — через ${days} д. ${hours} ч.`;
+      }
       banner.innerHTML = `
-        <div class="ptb-icon">⏳</div>
+        <div class="ptb-icon">${icon}</div>
         <div>
-          <div class="ptb-title">Турнир ещё не начался</div>
-          <div class="ptb-sub">ЧМ 2026 стартует <strong>${dateStr}</strong>. Здесь появятся результаты и счёт участников.</div>
+          <div class="ptb-title">${title}</div>
+          <div class="ptb-sub">${sub}</div>
         </div>`;
       $('leaderboard').insertAdjacentElement('beforebegin', banner);
     }

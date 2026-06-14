@@ -8,9 +8,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ─── CONFIGURATION ────────────────────────────────────────────────────────────
-const API_KEY  = process.env.API_KEY  || 'a5037427d9769ab2ff789fa24211c90b';
-const API_BASE = process.env.API_BASE || 'https://v3.football.api-sports.io';
-const WC_SEASON = parseInt(process.env.WC_SEASON || '2026', 10);
+const API_KEY      = process.env.API_KEY      || 'a5037427d9769ab2ff789fa24211c90b';
+const API_BASE     = process.env.API_BASE     || 'https://v3.football.api-sports.io';
+const WC_SEASON    = parseInt(process.env.WC_SEASON    || '2026', 10);
+const WC_LEAGUE_ID = parseInt(process.env.WC_LEAGUE_ID || '1',    10); // FIFA WC is always ID=1
 
 const PARTICIPANTS = [
   { name: 'Майя',      teams: ['Франция', 'Аргентина', 'Бразилия'] },
@@ -56,7 +57,8 @@ const TEAM_FLAGS = {
 
 // ─── CACHE ────────────────────────────────────────────────────────────────────
 const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000;
+// 30 min TTL → 2 API calls per refresh × 48 refreshes/day = 96 calls/day (≤ 100 free plan limit)
+const CACHE_TTL = 30 * 60 * 1000;
 
 async function apiCall(endpoint) {
   const url = `${API_BASE}${endpoint}`;
@@ -64,34 +66,33 @@ async function apiCall(endpoint) {
   const cached = cache.get(url);
   if (cached && now - cached.time < CACHE_TTL) return cached.data;
 
-  const res = await fetch(url, {
-    headers: { 'x-apisports-key': API_KEY },
-  });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  console.log(`[API →] ${endpoint}`);
+  const res = await fetch(url, { headers: { 'x-apisports-key': API_KEY } });
+
+  // Some proxies/CDNs return plain text errors with HTTP 200 (e.g. "Host not in allowlist")
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(`Non-JSON response (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+
   const data = await res.json();
+
+  // API-Football signals errors inside the body with HTTP 200
+  // e.g. {"errors":{"token":"Error/Missing application token"},"response":[]}
+  if (data.errors && Object.keys(data.errors).length > 0) {
+    const msg = Object.entries(data.errors).map(([k, v]) => `${k}: ${v}`).join('; ');
+    throw new Error(`API-Football: ${msg}`);
+  }
+
+  console.log(`[API ✓] ${endpoint} — ${(data.response || []).length} items`);
   cache.set(url, { data, time: now });
   return data;
-}
-
-// ─── LEAGUE DISCOVERY ─────────────────────────────────────────────────────────
-let _leagueId = null;
-
-async function getLeagueId() {
-  if (_leagueId) return _leagueId;
-  try {
-    const data = await apiCall(`/leagues?season=${WC_SEASON}&type=Cup`);
-    const leagues = data.response || [];
-    const wc = leagues.find(l => {
-      const name = (l.league.name || '').toLowerCase();
-      return name.includes('world cup') || l.league.id === 1;
-    });
-    _leagueId = wc ? wc.league.id : 1;
-    console.log(`[League] WC 2026 league ID: ${_leagueId}`);
-  } catch (e) {
-    console.warn('[League] Discovery failed, using ID=1:', e.message);
-    _leagueId = 1;
-  }
-  return _leagueId;
 }
 
 // ─── SCORE CALCULATION ────────────────────────────────────────────────────────
@@ -296,10 +297,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/data', async (req, res) => {
   try {
-    const lid = await getLeagueId();
     const [fixturesRes, standingsRes] = await Promise.all([
-      apiCall(`/fixtures?league=${lid}&season=${WC_SEASON}`),
-      apiCall(`/standings?league=${lid}&season=${WC_SEASON}`),
+      apiCall(`/fixtures?league=${WC_LEAGUE_ID}&season=${WC_SEASON}`),
+      apiCall(`/standings?league=${WC_LEAGUE_ID}&season=${WC_SEASON}`),
     ]);
 
     const fixtures  = fixturesRes.response  || [];
@@ -349,7 +349,7 @@ app.get('/api/data', async (req, res) => {
     res.json({
       ok: true,
       updatedAt: new Date().toISOString(),
-      leagueId: lid,
+      leagueId: WC_LEAGUE_ID,
       leaderboard,
       teamScores,
       totalFixtures,
