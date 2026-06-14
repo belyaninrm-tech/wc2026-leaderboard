@@ -69,17 +69,18 @@ async function fetchJSON(url, headers = {}) {
   console.log(`[Fetch →] ${url}`);
   const res = await fetch(url, { headers });
 
-  const ct = res.headers.get('content-type') || '';
-  if (!ct.includes('application/json')) {
-    const text = await res.text();
-    throw new Error(`Non-JSON response (HTTP ${res.status}): ${text.slice(0, 200)}`);
-  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
 
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Non-JSON response (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  }
 
   // football-data.org surfaces errors inside the body
   if (data.error || data.errorCode) {
