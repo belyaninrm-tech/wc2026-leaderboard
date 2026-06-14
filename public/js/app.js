@@ -75,7 +75,7 @@ async function fetchData() {
     state.error = null;
     $('errorBanner').classList.add('hidden');
     render();
-    updateStatusBar(json.updatedAt, json.totalFixtures, json.finishedFixtures);
+    updateStatusBar(json.updatedAt, json.totalFixtures, json.finishedFixtures, json.dataSource);
   } catch (e) {
     state.error = e.message;
     $('errorBanner').classList.remove('hidden');
@@ -96,10 +96,11 @@ function setLoading(on) {
   else btn.classList.remove('spinning');
 }
 
-function updateStatusBar(updatedAt, total, finished) {
-  const d = updatedAt ? new Date(updatedAt) : new Date();
+function updateStatusBar(updatedAt, total, finished, source) {
+  const d    = updatedAt ? new Date(updatedAt) : new Date();
   const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  $('statusText').textContent = `Обновлено в ${time} · Матчей: ${finished}/${total} сыграно`;
+  const src  = source === 'football-data.org' ? ' · football-data.org' : '';
+  $('statusText').textContent = `Обновлено в ${time} · Матчей: ${finished}/${total} сыграно${src}`;
 }
 
 function scheduleRefresh() {
@@ -128,6 +129,16 @@ function render() {
 }
 
 const WC_START = new Date('2026-06-11T00:00:00Z');
+
+// Team name translation (EN ↔ RU) — mirrors server-side RU_TO_EN
+const RU_EN_MAP = {
+  'Франция':'France','Аргентина':'Argentina','Бразилия':'Brazil',
+  'Испания':'Spain','Норвегия':'Norway','Англия':'England',
+  'Португалия':'Portugal','Германия':'Germany','Шотландия':'Scotland','Узбекистан':'Uzbekistan',
+};
+const EN_RU_MAP = Object.fromEntries(Object.entries(RU_EN_MAP).map(([r,e]) => [e,r]));
+const toRu  = en => EN_RU_MAP[en] || en;
+const toEn  = ru => RU_EN_MAP[ru] || ru;
 
 function renderPreTournamentBanner() {
   const { tournamentStarted, finishedFixtures } = state.data;
@@ -202,10 +213,29 @@ function renderLeaderboard() {
 }
 
 // ── Teams Grid ────────────────────────────────────────────────────────────────
+function fixtureHtml(f, teamEnglishName) {
+  const teamEn   = teamEnglishName;
+  const won  = (f.home === teamEn && f.homeGoals > f.awayGoals) ||
+               (f.away === teamEn && f.awayGoals > f.homeGoals);
+  const lost = (f.home === teamEn && f.homeGoals < f.awayGoals) ||
+               (f.away === teamEn && f.awayGoals < f.homeGoals);
+  const penStr = f.status === 'PEN' && f.penHome !== null
+    ? ` <span class="status-pen">(пен. ${f.penHome}:${f.penAway})</span>` : '';
+  const aetStr = f.status === 'AET' ? ` <span class="status-aet">(доп.)</span>` : '';
+  return `<div class="fixture-item">
+    <div class="fixture-teams">
+      <span>${escHtml(toRu(f.home))}</span>
+      <span style="color:var(--muted)">–</span>
+      <span>${escHtml(toRu(f.away))}</span>
+    </div>
+    <div class="fixture-score ${won ? 'win' : lost ? 'loss' : 'draw'}">${f.homeGoals}:${f.awayGoals}${aetStr}${penStr}</div>
+    <div class="fixture-round">${escHtml(formatRound(f.round))}</div>
+  </div>`;
+}
+
 function renderTeams() {
   const { teamScores, leaderboard } = state.data;
 
-  // Build a map: teamName → [participants who picked this team]
   const teamOwners = {};
   for (const p of leaderboard) {
     for (const t of p.teams) {
@@ -214,12 +244,13 @@ function renderTeams() {
     }
   }
 
-  const grid = $('teamsGrid');
+  const grid  = $('teamsGrid');
   const teams = Object.values(teamScores).sort((a, b) => b.total - a.total);
 
   grid.innerHTML = teams.map(ts => {
-    const s = ts.standing;
+    const s      = ts.standing;
     const owners = (teamOwners[ts.name] || []).join(', ');
+    const teamEn = toEn(ts.name);
 
     const standingHtml = s ? `
       <div class="tc-standing">
@@ -231,82 +262,22 @@ function renderTeams() {
       </div>
       ${s.form ? `<div class="tc-form">${s.form.split('').slice(-5).map(c =>
         `<div class="form-dot ${c}">${c}</div>`).join('')}</div>` : ''}
-      <div class="standing-bar">
-        ${s.group ? `<span>📍 ${escHtml(s.group)}</span>` : ''}
-      </div>` : '<div class="no-data">Данные групп пока недоступны</div>';
+      <div class="standing-bar">${s.group ? `<span>📍 ${escHtml(s.group)}</span>` : ''}</div>`
+      : '<div class="no-data">Данные групп пока недоступны</div>';
 
-    const recentHtml = ts.recentFixtures.slice(0, 4).map(f => {
-      const isHome = f.home === (Object.entries({
-        'Франция':'France','Аргентина':'Argentina','Бразилия':'Brazil',
-        'Испания':'Spain','Норвегия':'Norway','Англия':'England',
-        'Португалия':'Portugal','Германия':'Germany','Шотландия':'Scotland',
-        'Узбекистан':'Uzbekistan'
-      }).find(([, v]) => v === f.home || v === f.away)?.[0] || '') ;
-      const teamEn = Object.entries({
-        'Франция':'France','Аргентина':'Argentina','Бразилия':'Brazil',
-        'Испания':'Spain','Норвегия':'Norway','Англия':'England',
-        'Португалия':'Portugal','Германия':'Germany','Шотландия':'Scotland',
-        'Узбекистан':'Uzbekistan'
-      }).find(([ruName]) => ruName === ts.name)?.[1] || ts.name;
-
-      const won  = (f.home === teamEn && f.homeGoals > f.awayGoals) ||
-                   (f.away === teamEn && f.awayGoals > f.homeGoals);
-      const lost = (f.home === teamEn && f.homeGoals < f.awayGoals) ||
-                   (f.away === teamEn && f.awayGoals < f.homeGoals);
-      const scoreClass = won ? 'win' : lost ? 'loss' : 'draw';
-
-      const penStr = f.status === 'PEN' && f.penHome !== null
-        ? ` <span class="status-pen">(пен. ${f.penHome}:${f.penAway})</span>` : '';
-      const aetStr = f.status === 'AET' ? ` <span class="status-aet">(доп.)</span>` : '';
-
-      const homeRu = Object.entries({
-        'France':'Франция','Argentina':'Аргентина','Brazil':'Бразилия',
-        'Spain':'Испания','Norway':'Норвегия','England':'Англия',
-        'Portugal':'Португалия','Germany':'Германия','Scotland':'Шотландия',
-        'Uzbekistan':'Узбекистан'
-      }).find(([en]) => en === f.home)?.[1] || f.home;
-      const awayRu = Object.entries({
-        'France':'Франция','Argentina':'Аргентина','Brazil':'Бразилия',
-        'Spain':'Испания','Norway':'Норвегия','England':'Англия',
-        'Portugal':'Португалия','Germany':'Германия','Scotland':'Шотландия',
-        'Uzbekistan':'Узбекистан'
-      }).find(([en]) => en === f.away)?.[1] || f.away;
-
-      return `<div class="fixture-item">
-        <div class="fixture-teams">
-          <span>${escHtml(homeRu)}</span>
-          <span style="color:var(--muted)">–</span>
-          <span>${escHtml(awayRu)}</span>
-        </div>
-        <div class="fixture-score ${scoreClass}">${f.homeGoals}:${f.awayGoals}${aetStr}${penStr}</div>
-        <div class="fixture-round">${escHtml(formatRound(f.round))}</div>
-      </div>`;
-    }).join('');
-
-    const logoHtml = s?.logo ? `<img class="tc-logo" src="${escHtml(s.logo)}" alt="" loading="lazy">` : '';
+    const recentHtml = ts.recentFixtures.slice(0, 4).map(f => fixtureHtml(f, teamEn)).join('');
 
     const upcomingHtml = ts.upcomingFixtures.length > 0 ? `
       <div class="tc-upcoming">
         <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Ближайшие матчи</div>
-        ${ts.upcomingFixtures.map(f => {
-          const homeRu = Object.entries({
-            'France':'Франция','Argentina':'Аргентина','Brazil':'Бразилия',
-            'Spain':'Испания','Norway':'Норвегия','England':'Англия',
-            'Portugal':'Португалия','Germany':'Германия','Scotland':'Шотландия',
-            'Uzbekistan':'Узбекистан'
-          }).find(([en]) => en === f.home)?.[1] || f.home;
-          const awayRu = Object.entries({
-            'France':'Франция','Argentina':'Аргентина','Brazil':'Бразилия',
-            'Spain':'Испания','Norway':'Норвегия','England':'Англия',
-            'Portugal':'Португалия','Germany':'Германия','Scotland':'Шотландия',
-            'Uzbekistan':'Узбекистан'
-          }).find(([en]) => en === f.away)?.[1] || f.away;
-          return `<div class="upcoming-item">
-            <span>${escHtml(homeRu)} — ${escHtml(awayRu)}</span>
+        ${ts.upcomingFixtures.map(f => `
+          <div class="upcoming-item">
+            <span>${escHtml(toRu(f.home))} — ${escHtml(toRu(f.away))}</span>
             <span>${formatDate(f.date)}</span>
-          </div>`;
-        }).join('')}
+          </div>`).join('')}
       </div>` : '';
+
+    const logoHtml = s?.logo ? `<img class="tc-logo" src="${escHtml(s.logo)}" alt="" loading="lazy">` : '';
 
     return `
     <div class="team-card">
@@ -327,13 +298,6 @@ function renderTeams() {
 }
 
 // ─── PARTICIPANT MODAL ────────────────────────────────────────────────────────
-const EN_RU_MAP = {
-  'France':'Франция','Argentina':'Аргентина','Brazil':'Бразилия',
-  'Spain':'Испания','Norway':'Норвегия','England':'Англия',
-  'Portugal':'Португалия','Germany':'Германия','Scotland':'Шотландия',
-  'Uzbekistan':'Узбекистан'
-};
-
 function openParticipantModal(name) {
   if (!state.data) return;
   const p = state.data.leaderboard.find(x => x.name === name);
@@ -347,35 +311,8 @@ function openParticipantModal(name) {
     const s = ts.standing;
     const b = ts.breakdown;
 
-    const recentHtml = ts.recentFixtures.slice(0, 5).map(f => {
-      const teamEn = Object.entries({
-        'Франция':'France','Аргентина':'Argentina','Бразилия':'Brazil',
-        'Испания':'Spain','Норвегия':'Norway','Англия':'England',
-        'Португалия':'Portugal','Германия':'Germany','Шотландия':'Scotland',
-        'Узбекистан':'Uzbekistan'
-      }).find(([ru]) => ru === teamName)?.[1] || teamName;
-
-      const won  = (f.home === teamEn && f.homeGoals > f.awayGoals) ||
-                   (f.away === teamEn && f.awayGoals > f.homeGoals);
-      const lost = (f.home === teamEn && f.homeGoals < f.awayGoals) ||
-                   (f.away === teamEn && f.awayGoals < f.homeGoals);
-      const scoreClass = won ? 'win' : lost ? 'loss' : 'draw';
-      const homeRu = EN_RU_MAP[f.home] || f.home;
-      const awayRu = EN_RU_MAP[f.away] || f.away;
-      const penStr = f.status === 'PEN' && f.penHome !== null
-        ? ` <span class="status-pen">(пен. ${f.penHome}:${f.penAway})</span>` : '';
-      const aetStr = f.status === 'AET' ? ` <span class="status-aet">(доп.)</span>` : '';
-
-      return `<div class="fixture-item">
-        <div class="fixture-teams">
-          <span>${escHtml(homeRu)}</span>
-          <span style="color:var(--muted)">–</span>
-          <span>${escHtml(awayRu)}</span>
-        </div>
-        <div class="fixture-score ${scoreClass}">${f.homeGoals}:${f.awayGoals}${aetStr}${penStr}</div>
-        <div class="fixture-round">${escHtml(formatRound(f.round))}</div>
-      </div>`;
-    }).join('');
+    const recentHtml = ts.recentFixtures.slice(0, 5)
+      .map(f => fixtureHtml(f, toEn(teamName))).join('');
 
     return `
     <div class="tb-row">
